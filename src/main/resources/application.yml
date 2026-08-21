@@ -20,12 +20,25 @@ spring:
     password: ${RABBITMQ_PASSWORD:apppass}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/duo}
-    username: ${DB_USERNAME:duo}
-    password: ${DB_PASSWORD}
+    # 서비스 전용 DB 계정. 자기 스키마 밖은 권한이 없어서, 남의 테이블을 읽는
+    # 쿼리는 개발 단계에서 permission denied 로 즉시 실패한다.
+    #
+    # 키 이름에 서비스명을 넣은 이유: application-secret.yml 은 네 서비스가
+    # 공유한다. DB_USERNAME 같은 공통 키를 쓰면 한 값이 셋을 다 덮어써
+    # 계정 분리가 무의미해진다.
+    username: ${USER_DB_USERNAME:duo_user}
+    password: ${USER_DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: update
     open-in-view: false
+    properties:
+      hibernate:
+        # 모든 쿼리에 스키마를 자동으로 붙인다.  posts → user_svc.posts
+        # DB 계정의 search_path 도 같은 값으로 잡아두었다(V1 마이그레이션).
+        # 둘 다 거는 이유: default_schema 는 Hibernate 가 만든 쿼리에만 적용되고,
+        # 네이티브 쿼리는 search_path 를 탄다.
+        default_schema: user_svc
   servlet:
     multipart:
       max-file-size: 5MB
