@@ -33,15 +33,24 @@ public class User {
     private String name;
     private String phone;
 
-    // 설문 정보
-    private String gender;
-    private String ageRange;
+    // 프로필 정보
+    //
+    // [FR-01] gender 는 민감정보라 더 이상 수집·보관하지 않는다.
+    //   컬럼 자체를 지우려면 별도 마이그레이션이 필요하다(ddl-auto: update 는 컬럼을
+    //   드롭하지 않는다). db/migration/V3__survey_revamp.sql 참고.
+    // [FR-01] ageRange('20대') → age(숫자). 구간으로 받으면 '19세와 20세'가 다른 칸에
+    //   들어가고 '20세와 29세'가 같은 칸에 들어간다. 매칭에 쓸 수 있는 형태가 아니다.
+    private Integer age;
     private String game;
     private String playStyle;
     private String position;
     private boolean mic;
     private String tier;
     private String playTimes;
+    /** 주로 플레이하는 요일, 콤마 구분. ("월,수,금" 또는 "상관없음") */
+    private String playDays;
+    /** 1회 플레이 선호 분량. ("2~4시간") */
+    private String playDuration;
     private String gameModes;
     private String riotNickname;
 

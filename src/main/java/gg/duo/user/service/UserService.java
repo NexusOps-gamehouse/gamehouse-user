@@ -82,14 +82,15 @@ public class UserService {
                 throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
             user.setNickname(req.nickname());
         }
-        user.setGender(req.gender());
-        user.setAgeRange(req.ageRange());
+        user.setAge(req.age());
         user.setGame(req.game());
         user.setPlayStyle(req.playStyle());
         user.setPosition(req.position());
         user.setMic(req.mic());
         user.setTier(req.tier());
         user.setPlayTimes(req.playTimes());
+        user.setPlayDays(req.playDays());
+        user.setPlayDuration(req.playDuration());
         user.setGameModes(req.gameModes());
         user.setRiotNickname(req.riotNickname());
 
