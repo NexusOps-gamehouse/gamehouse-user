@@ -24,6 +24,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final FileStorageService fileStorageService;
+    private final SurveyService surveyService;
 
     @Transactional
     public AuthResponse signup(SignupForm form, MultipartFile image) {
@@ -54,20 +55,46 @@ public class AuthService {
         user.setName(form.getName().trim());
         user.setPhone(normalizePhone(form.getPhone()));
         user.setProfileImageUrl(fileStorageService.store(image));
-        user.setGender(form.getGender());
-        user.setAgeRange(form.getAgeRange());
-        user.setGame(form.getGame());
-        user.setPlayStyle(form.getPlayStyle());
-        user.setPosition(form.getPosition());
+        // [FR-01] 프로필 정보 5개
+        user.setAge(form.getAge());
         user.setMic(form.isMic());
-        user.setTier(form.getTier());
         user.setPlayTimes(form.getPlayTimes());
-        user.setGameModes(form.getGameModes());
+        user.setPlayDays(form.getPlayDays());
+        user.setPlayDuration(form.getPlayDuration());
         user.setRiotNickname(form.getRiotNickname());
         user.setLastActiveAt(Instant.now());
         userRepository.save(user);
 
+        /*
+         * 성향 설문을 가입과 같은 트랜잭션에서 저장한다.
+         *
+         * 별도 API 로 나누면 "계정은 생겼는데 설문만 실패한" 사용자가 남는다.
+         * 그 계정은 매칭 점수를 낼 수 없고, 다시 채우게 만들 화면도 아직 없다.
+         * 여기서 예외가 나면 계정 생성까지 함께 롤백되는 편이 낫다.
+         *
+         * 설문을 건너뛴 가입(선택 단계로 돌릴 경우)도 있을 수 있어 값이 없으면 조용히 넘어간다.
+         */
+        if (form.getSurveyAnswers() != null && !form.getSurveyAnswers().isBlank())
+            surveyService.submit(user.getId(), parseAnswers(form.getSurveyAnswers()));
+
         return new AuthResponse(jwtTokenProvider.createToken(user.getId()), UserMapper.from(user));
+    }
+
+    /**
+     * "3,5,1,4,..." → [3, 5, 1, 4, ...]
+     *
+     * multipart 폼이라 배열을 그대로 받기 어려워 콤마 문자열로 온다.
+     * 값 검증(개수·1~5 범위)은 SurveyService 가 한다. 여기서는 형태만 바꾼다.
+     */
+    private java.util.List<Integer> parseAnswers(String csv) {
+        try {
+            return java.util.Arrays.stream(csv.split(","))
+                    .map(String::trim)
+                    .map(Integer::parseInt)
+                    .toList();
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("설문 응답 형식이 올바르지 않습니다.");
+        }
     }
 
     /**
