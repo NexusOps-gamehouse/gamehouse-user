@@ -4,12 +4,15 @@ import gg.duo.common.dto.UserDto;
 import gg.duo.user.client.RiotClient;
 import gg.duo.user.domain.mastery.UserChampionMastery;
 import gg.duo.user.domain.mastery.UserChampionMasteryRepository;
+import gg.duo.user.domain.survey.PlayStyleSurvey;
+import gg.duo.user.domain.survey.PlayStyleSurveyRepository;
 import gg.duo.user.domain.user.User;
 import gg.duo.user.domain.user.UserRepository;
 import gg.duo.user.dto.AuthDtos.ProfileUpdateRequest;
 import gg.duo.user.dto.ChampionMasteryView;
 import gg.duo.user.dto.RiotProfileView;
 import gg.duo.user.dto.UserMapper;
+import gg.duo.user.dto.UserPersonalityView;
 import gg.duo.user.event.publisher.UserProfileUpdatedPublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -38,6 +41,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final UserChampionMasteryRepository userChampionMasteryRepository;
+    private final PlayStyleSurveyRepository playStyleSurveyRepository;
     private final PasswordEncoder passwordEncoder;
     private final RiotClient riotClient;
     private final UserProfileUpdatedPublisher profileUpdatedPublisher;
@@ -71,6 +75,42 @@ public class UserService {
     public List<Long> findIdsByNicknameContaining(String keyword) {
         if (keyword == null || keyword.isBlank()) return List.of();
         return userRepository.findIdsByNicknameContaining(keyword.trim());
+    }
+
+    /**
+     * 서비스 간 조회용 — match 가 Team Fit 계산에 쓰는 성향 점수만 묶어서 내려준다.
+     *
+     * UserDto(findAllByIds)에 같이 태우지 않는 이유: 그 응답은 /api/users/{id} 로도
+     * 그대로 나가는 "공개 프로필"이다. 성향 점수는 매칭 계산 전용이라 /internal 로만
+     * 노출한다 — InternalUserController 참고.
+     *
+     * 설문에 응답한 적 없는 사용자는 결과에서 그냥 빠진다(결측 처리는
+     * match 서비스의 TeamFitCalculator/PersonalityProfile 이 담당한다).
+     *
+     * 채점 버전이 현재(SurveyService.SCORING_VERSION) 미만인 행도 같이 뺀다.
+     * 옛 6축(v1) 행에는 주도성 두 축이 없어서, 내려보내면 match 쪽에서
+     * "설문은 했지만 주도성만 비어 있는 사람"으로 보인다. 실제로는 문항 자체가
+     * 달랐던 것이므로 미응답과 같이 취급하는 편이 맞다.
+     */
+    @Transactional(readOnly = true)
+    public List<UserPersonalityView> personalityByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return playStyleSurveyRepository
+                .findByUserIdInAndScoringVersionGreaterThanEqual(ids, SurveyService.SCORING_VERSION)
+                .stream()
+                .map(UserService::toPersonalityView)
+                .toList();
+    }
+
+    private static UserPersonalityView toPersonalityView(PlayStyleSurvey s) {
+        return new UserPersonalityView(s.getUserId(), new UserPersonalityView.Personality(
+                s.getWinOrientation(),
+                s.getMistakeTolerance(),
+                s.getCommunication(),
+                s.getFocus(),
+                s.getInitiative(),            // 나의 주도성 → leadership
+                s.getInitiativePreference(),  // 선호하는 상대 주도성 → leadershipPreference
+                s.getSociality()));           // sociality → sociability
     }
 
     @Transactional

@@ -39,8 +39,14 @@ public class SurveyService {
     public static final int MIN_SCORE = 1;
     public static final int MAX_SCORE = 5;
 
-    /** 2 = 7축 체계(FR-01). 1은 옛 6축이라 섞으면 안 된다. */
-    private static final int SCORING_VERSION = 2;
+    /**
+     * 2 = 7축 체계(FR-01). 1은 옛 6축이라 섞으면 안 된다.
+     *
+     * public 인 이유: UserService.personalityByIds 가 "이 버전 이상만 매칭으로
+     * 내보낸다"는 기준으로 이 값을 그대로 참조한다. 상수를 복제해 두면 여기만
+     * 올리고 조회 기준을 못 올리는 날이 온다.
+     */
+    public static final int SCORING_VERSION = 2;
 
     private final PlayStyleSurveyRepository surveyRepository;
 

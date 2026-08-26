@@ -1,6 +1,7 @@
 package gg.duo.user.controller;
 
 import gg.duo.common.dto.UserDto;
+import gg.duo.user.dto.UserPersonalityView;
 import gg.duo.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,5 +41,16 @@ public class InternalUserController {
     @GetMapping("/ids-by-nickname")
     public List<Long> idsByNickname(@RequestParam String keyword) {
         return userService.findIdsByNicknameContaining(keyword);
+    }
+
+    /**
+     * id 묶음 → 성향 축 점수. match 서비스의 Team Fit 계산 전용이다.
+     *
+     * findAllByIds(UserDto)와 분리한 이유는 UserDto.java 주석 참고 — 공개 프로필
+     * 응답에는 성향 점수를 얹지 않는다.
+     */
+    @GetMapping("/personality")
+    public List<UserPersonalityView> personality(@RequestParam List<Long> ids) {
+        return userService.personalityByIds(ids);
     }
 }
