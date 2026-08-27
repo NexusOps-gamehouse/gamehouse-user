@@ -1,7 +1,65 @@
-apply plugin: 'org.springframework.boot'
+/*
+ * gamehouse-user — 회원 · 인증 · 친구 · 알림 · 설문 서비스.
+ *
+ * 모노레포에서는 backend 루트 build.gradle 이 plugin·toolchain·컴파일 옵션을
+ * subprojects 로 일괄 적용하고, common 은 project(':common') 으로 참조했다.
+ * 레포가 갈라지면서 둘 다 사라졌으므로 여기서 직접 선언한다.
+ */
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'gg.duo'
+version = '0.0.1-SNAPSHOT'
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+
+repositories {
+    mavenCentral()
+
+    /*
+     * common 이 사는 곳.
+     *
+     * ⚠️ GitHub Packages 는 public 패키지도 읽기에 토큰이 필요하다.
+     *    팀원 전원이 ~/.gradle/gradle.properties 에 아래 두 줄을 넣어야 빌드된다.
+     *      gpr.user=<GitHub 아이디>
+     *      gpr.key=<classic PAT · read:packages>
+     *
+     *    CI 는 조직 secret GPR_TOKEN 을 쓰고, 없으면 GITHUB_TOKEN 으로 넘어간다.
+     */
+    maven {
+        name = 'GitHubPackages'
+        url = 'https://maven.pkg.github.com/NexusOps-gamehouse/gamehouse-common'
+        credentials {
+            username = findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+            password = findProperty('gpr.key')  ?: System.getenv('GITHUB_TOKEN')
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs << '-parameters'
+    options.encoding = 'UTF-8'
+}
 
 dependencies {
-    implementation project(':common')
+    /*
+     * 모노레포의 project(':common') 이 여기로 바뀐다.
+     * common 이 Spring Boot BOM 을 api 로 노출하므로 starter 에 버전을 적지 않는다.
+     *
+     * ⚠️ 고정 버전이다. common 이 올라가면 여기 버전도 함께 올린다.
+     */
+    implementation 'gg.duo:common:0.1.0'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     runtimeOnly 'org.postgresql:postgresql'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
+
+tasks.named('test') { useJUnitPlatform() }

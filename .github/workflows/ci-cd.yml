@@ -1,0 +1,257 @@
+name: user-ci-cd
+
+# feature/* → develop PR 시 검증, develop merge 시 이미지 publish.
+#
+# [모노레포 때와 달라진 것]
+#   before  서비스 5개 matrix, 컨텍스트가 backend/,
+#           스키마는 db/migration/local-bootstrap.sql 하나로 전부 생성
+#   after   user 하나만. 컨텍스트는 이 레포.
+#           자기 스키마·계정만 db/init.sql 로 만든다 (남의 것은 필요 없다).
+#           common 은 GitHub Packages 에서 받으므로 인증이 필요하다.
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  IMAGE_REPO: gamehouse
+  SERVICE: user
+  MGMT_PORT: 8181
+  # CI 전용 일회용 DB 비밀번호. 매 실행마다 빈 postgres 컨테이너를 새로 띄우므로
+  # 실제 데이터에 닿지 않는다. 운영·로컬 값과 무관하다.
+  CI_DB_PASSWORD: ci-user-throwaway-pw
+
+jobs:
+  # ---------------------------------------------------------------
+  # [PR 게이트 1] Secret scan
+  # merge 후에는 히스토리에 남아 되돌리기 어려우므로 PR 시점에 돌린다.
+  # ---------------------------------------------------------------
+  verify:
+    name: verify (secret scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "${PWD}:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --no-git --redact --verbose
+
+  # ---------------------------------------------------------------
+  # [PR 게이트 2] 이미지 빌드 + 실제 기동
+  # Dockerfile 이 jlink 로 JRE 를 조립하므로 모듈이 빠지면
+  # 빌드는 통과하고 "실행할 때만" NoClassDefFound 가 난다.
+  # ---------------------------------------------------------------
+  image-check:
+    name: image-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      # ddl-auto: update 로 부팅 중 테이블을 만들므로 DB 없이는 뜨지 않는다.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: duo
+          POSTGRES_USER: duo
+          POSTGRES_PASSWORD: ci-local-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U duo -d duo"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+      # 서비스 간 이벤트(AMQP). 브로커가 없으면 앱은 뜨지만 재접속 로그가 쌓이고
+      # actuator health 가 DOWN 이라 스모크 테스트가 실패한다.
+      rabbitmq:
+        image: rabbitmq:3-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: appuser
+          RABBITMQ_DEFAULT_PASS: apppass
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # 자기 스키마·계정만 만든다. 남의 서비스 것은 이 레포의 관심사가 아니다.
+      #
+      # 비밀번호는 db/init.sql 에 없다 — 커밋되는 파일이라 값을 넣지 않는다.
+      # CI 는 여기서 만든 일회용 값을 주입하고, 아래 스모크 테스트가 같은 값을 쓴다.
+      # (로컬에서는 ./db/init.sh 가 application-secret.yml 에서 읽어 넘긴다)
+      - name: Bootstrap schema and role
+        env:
+          PGPASSWORD: ci-local-password
+        run: |
+          psql -h localhost -U duo -d duo -v ON_ERROR_STOP=1 \
+            -v user_pw="${{ env.CI_DB_PASSWORD }}" \
+            -f db/init.sql
+
+      # 패키지를 실제로 읽을 수 있는지 먼저 확인한다.
+      # 이게 없으면 Docker 빌드를 5분 돌린 뒤에야 401 을 보게 된다.
+      - name: Check package access
+        run: |
+          if [ -z "${{ secrets.GPR_TOKEN }}" ]; then
+            echo "GPR_TOKEN : 비어 있음 → GITHUB_TOKEN 으로 시도"
+          else
+            echo "GPR_TOKEN : 설정됨"
+          fi
+
+          # -L 이 필요하다. GitHub Packages 는 인증이 통과하면 실제 파일이 있는
+          # objects.githubusercontent.com 으로 302 리다이렉트한다.
+          code=$(curl -sL -o /dev/null -w '%{http_code}' \
+            -u "${{ github.actor }}:${{ secrets.GPR_TOKEN || secrets.GITHUB_TOKEN }}" \
+            https://maven.pkg.github.com/NexusOps-gamehouse/gamehouse-common/gg/duo/common/0.1.0/common-0.1.0.pom)
+
+          echo "common-0.1.0.pom => HTTP ${code}"
+          case "${code}" in
+            200) echo "패키지 읽기 OK" ;;
+            401) echo "::error::401 — 토큰 무효 (fine-grained PAT 이거나 read:packages 누락)"; exit 1 ;;
+            403) echo "::error::403 — 조직 PAT 정책 또는 패키지 접근 권한 문제"; exit 1 ;;
+            404) echo "::error::404 — 패키지 좌표가 다르다 (artifactId/version 확인)"; exit 1 ;;
+            *)   echo "::error::예상치 못한 응답 ${code}"; exit 1 ;;
+          esac
+
+      # common 은 다른 레포가 소유한 패키지라 이 레포 워크플로가 읽으려면
+      #   A) 패키지 설정 → Manage Actions access 에 이 레포를 Read 로 추가, 또는
+      #   B) 조직 secret GPR_TOKEN (classic PAT, read:packages)
+      # 둘 중 뭐가 있든 동작하도록 GPR_TOKEN 을 우선하고 없으면 GITHUB_TOKEN 으로 넘어간다.
+      - name: Write GPR credentials
+        run: |
+          printf 'gpr.user=%s\ngpr.key=%s\n' \
+            "${{ github.actor }}" \
+            "${{ secrets.GPR_TOKEN || secrets.GITHUB_TOKEN }}" > gradle.properties.ci
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: gamehouse-user:ci
+          secret-files: |
+            gpr=gradle.properties.ci
+          cache-from: type=gha,scope=user
+          cache-to: type=gha,mode=max,scope=user
+
+      # DAST: 실제로 컨테이너를 띄워 확인한다.
+      # actuator/health 는 DB·RabbitMQ 커넥션까지 함께 본다 — 하나라도 끊겨 있으면 503.
+      - name: Smoke test running container
+        run: |
+          docker run -d --name gh-ci-user --network host \
+            -e DB_URL=jdbc:postgresql://localhost:5432/duo \
+            -e USER_DB_USERNAME=duo_user -e USER_DB_PASSWORD=${{ env.CI_DB_PASSWORD }} \
+            -e RABBITMQ_HOST=localhost \
+            -e RABBITMQ_USERNAME=appuser -e RABBITMQ_PASSWORD=apppass \
+            -e JWT_SECRET=ci-only-throwaway-secret-key-do-not-use-in-prod \
+            gamehouse-user:ci
+
+          ok=0
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              http://localhost:${{ env.MGMT_PORT }}/actuator/health || echo 000)
+            if [ "${code}" = "200" ]; then
+              echo "HTTP 200 - user is up (DB / broker connections healthy)"
+              ok=1
+              break
+            fi
+            echo "waiting... (attempt ${i}, last code=${code})"
+            sleep 2
+          done
+
+          if [ "${ok}" != "1" ]; then
+            echo "::error::user did not become healthy within 60s"
+            curl -s http://localhost:${{ env.MGMT_PORT }}/actuator/health || true
+            docker logs --tail=200 gh-ci-user
+            exit 1
+          fi
+
+      - name: Assert no credential leaked into image
+        run: |
+          if docker history --no-trunc gamehouse-user:ci | grep -qi 'ghp_\|gpr.key'; then
+            echo "::error::credential found in image layers"
+            exit 1
+          fi
+          echo "no credential in image layers"
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f gh-ci-user || true
+
+  # ---------------------------------------------------------------
+  # [publish] develop merge 이후에만
+  # 태그는 모노레포 때와 같게 유지한다 — infra 의 compose 와 k8s 매니페스트가
+  # 이 이름을 보고 있어서 바꾸면 배포가 끊긴다.
+  # ---------------------------------------------------------------
+  publish:
+    name: publish
+    needs: [verify, image-check]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # 값이 틀리면 401 이 나지만, 개행이나 공백이 섞이면
+      #   malformed HTTP Authorization header
+      # 로 죽는다. secret 입력란에 붙여넣고 Enter 를 누르면 개행이 저장된다.
+      - name: Check Docker Hub credentials format
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          fail=0
+          [ -n "$DH_USER" ]  || { echo "::error::DOCKERHUB_USERNAME 이 비어 있다"; fail=1; }
+          [ -n "$DH_TOKEN" ] || { echo "::error::DOCKERHUB_TOKEN 이 비어 있다"; fail=1; }
+          echo "username 길이: ${#DH_USER}   token 길이: ${#DH_TOKEN}"
+          case "$DH_USER" in
+            *[[:space:]]*) echo "::error::DOCKERHUB_USERNAME 에 공백이나 개행이 있다"; fail=1 ;;
+          esac
+          case "$DH_TOKEN" in
+            *[[:space:]]*) echo "::error::DOCKERHUB_TOKEN 에 공백이나 개행이 있다"; fail=1 ;;
+          esac
+          [ "$fail" = "0" ] || exit 1
+          echo "형식 OK"
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Write GPR credentials
+        run: |
+          printf 'gpr.user=%s\ngpr.key=%s\n' \
+            "${{ github.actor }}" \
+            "${{ secrets.GPR_TOKEN || secrets.GITHUB_TOKEN }}" > gradle.properties.ci
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          secret-files: |
+            gpr=gradle.properties.ci
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:user-develop
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:user-${{ github.sha }}
+          cache-from: type=gha,scope=user
+          cache-to: type=gha,mode=max,scope=user
