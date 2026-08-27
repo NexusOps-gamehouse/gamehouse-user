@@ -56,9 +56,9 @@ CONTAINER="${CONTAINER:-$(docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/nul
   | grep -i -m1 postgres | cut -f1 || true)}"
 
 # ⚠️ 값을 날것으로 넘긴다. 여기서 따옴표로 감싸면 안 된다.
-# init.sql 의 :'user_pw' 가 psql 단계에서 SQL 문자열 리터럴로 감싸주므로,
+# init.sql 의 :'svc_pw' 가 psql 단계에서 SQL 문자열 리터럴로 감싸주므로,
 # 미리 감싸면 따옴표가 두 번 씌워져 비밀번호에 따옴표가 포함돼 저장된다.
-PW_ARG="user_pw=$SVC_PASS"
+PW_ARG="svc_pw=$SVC_PASS"
 
 if [ -n "$CONTAINER" ]; then
   echo "대상: ${DB_NAME} (컨테이너 ${CONTAINER}, 관리 계정 ${ADMIN_USER})"

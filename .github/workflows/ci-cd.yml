@@ -101,7 +101,7 @@ jobs:
           PGPASSWORD: ci-local-password
         run: |
           psql -h localhost -U duo -d duo -v ON_ERROR_STOP=1 \
-            -v user_pw="${{ env.CI_DB_PASSWORD }}" \
+            -v svc_pw="${{ env.CI_DB_PASSWORD }}" \
             -f db/init.sql
 
       # 패키지를 실제로 읽을 수 있는지 먼저 확인한다.
