@@ -10,9 +10,9 @@ name: user-ci-cd
 #           common 은 GitHub Packages 에서 받으므로 인증이 필요하다.
 on:
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
   push:
-    branches: [develop]
+    branches: [develop, main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -251,7 +251,7 @@ jobs:
           secret-files: |
             gpr=gradle.properties.ci
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:user-develop
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:user-${{ github.ref_name }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:user-${{ github.sha }}
           cache-from: type=gha,scope=user
           cache-to: type=gha,mode=max,scope=user
