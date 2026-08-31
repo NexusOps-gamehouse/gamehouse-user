@@ -27,6 +27,11 @@ public class AuthService {
     private final SurveyService surveyService;
 
     @Transactional
+    public AuthResponse signup(SignupForm form) {
+        return signup(form, null);
+    }
+
+    @Transactional
     public AuthResponse signup(SignupForm form, MultipartFile image) {
         if (form.getEmail() == null || form.getEmail().isBlank())
             throw new IllegalArgumentException("이메일을 입력해주세요.");
@@ -54,7 +59,18 @@ public class AuthService {
         // 폼도 DTO 도 엔티티도 조회 로직도 멀쩡했고, 저장하는 곳만 없었다.
         user.setName(form.getName().trim());
         user.setPhone(normalizePhone(form.getPhone()));
-        user.setProfileImageUrl(fileStorageService.store(image));
+        String profileImageKey = form.getProfileImageKey();
+
+        if (profileImageKey != null && !profileImageKey.isBlank()) {
+            if (!profileImageKey.matches(
+                    "^profile-images/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(jpg|png|webp)$")) {
+                throw new IllegalArgumentException("프로필 이미지 경로가 올바르지 않습니다.");
+            }
+
+            user.setProfileImageUrl(profileImageKey);
+        } else {
+            user.setProfileImageUrl(fileStorageService.store(image));
+        }
         // [FR-01] 프로필 정보 5개
         user.setAge(form.getAge());
         user.setMic(form.isMic());

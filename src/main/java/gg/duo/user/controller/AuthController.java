@@ -25,6 +25,11 @@ public class AuthController {
         return authService.signup(form, image);
     }
 
+    @PostMapping(value = "/signup", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public AuthResponse signupJson(@RequestBody SignupForm form) {
+        return authService.signup(form);
+    }
+
     @PostMapping("/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
         return authService.login(request);
