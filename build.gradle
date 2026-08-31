@@ -60,6 +60,8 @@ dependencies {
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    implementation platform('software.amazon.awssdk:bom:2.32.29')
+    implementation 'software.amazon.awssdk:s3'
 }
 
 tasks.named('test') { useJUnitPlatform() }
