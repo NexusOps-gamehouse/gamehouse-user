@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import gg.duo.user.service.ProfileImageStorageService;
 
 import java.util.Map;
 
@@ -17,7 +18,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
-
+    private final ProfileImageStorageService profileImageStorageService;
     @PostMapping(value = "/signup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public AuthResponse signup(@ModelAttribute SignupForm form,
                                @RequestParam(value = "image", required = false) MultipartFile image) {
@@ -40,4 +41,13 @@ public class AuthController {
     public Map<String, Boolean> checkNickname(@RequestParam String nickname) {
         return Map.of("available", authService.nicknameAvailable(nickname));
     }
+
+    @PostMapping("/profile-image/presigned-url")
+    public ProfileImageStorageService.PresignedUpload createProfileImageUpload(
+            @RequestBody ProfileImageUploadRequest request
+    ) {
+        return profileImageStorageService.createPresignedUpload(request.contentType());
+    }
+
+    public record ProfileImageUploadRequest(String contentType) {}
 }

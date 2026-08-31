@@ -52,6 +52,12 @@ app:
   upload-dir: ${UPLOAD_DIR:./uploads}
   cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+
+aws:
+  region: ${AWS_REGION:ap-northeast-2}
+  s3:
+    profile-image-bucket: ${PROFILE_IMAGE_BUCKET:}
+
 # 서비스 간 호출 주소.
 # k8s 에서는 서비스 이름(http://user:8081)으로 들어오고, 로컬에서는 아래 기본값을 쓴다.
 services:
