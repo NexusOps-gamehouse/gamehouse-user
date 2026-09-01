@@ -27,6 +27,7 @@ public class AuthDtos {
         private String surveyAnswers;
 
         private String riotNickname;
+        private String profileImageKey;
     }
 
     public record LoginRequest(String email, String password) {}
