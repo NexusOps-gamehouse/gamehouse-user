@@ -59,14 +59,15 @@ public class AuthService {
         // 폼도 DTO 도 엔티티도 조회 로직도 멀쩡했고, 저장하는 곳만 없었다.
         user.setName(form.getName().trim());
         user.setPhone(normalizePhone(form.getPhone()));
-        if (form.getProfileImageKey() != null && !form.getProfileImageKey().isBlank()) {
-            String key = form.getProfileImageKey();
+        String profileImageKey = form.getProfileImageKey();
 
-            if (!key.matches("^profile-images/[0-9a-fA-F-]{36}\\.(jpg|jpeg|png|webp)$")) {
-                throw new IllegalArgumentException("올바르지 않은 프로필 이미지 경로입니다.");
+        if (profileImageKey != null && !profileImageKey.isBlank()) {
+            if (!profileImageKey.matches(
+                    "^profile-images/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(jpg|png|webp)$")) {
+                throw new IllegalArgumentException("프로필 이미지 경로가 올바르지 않습니다.");
             }
 
-            user.setProfileImageUrl(key);
+            user.setProfileImageUrl(profileImageKey);
         } else {
             user.setProfileImageUrl(fileStorageService.store(image));
         }
