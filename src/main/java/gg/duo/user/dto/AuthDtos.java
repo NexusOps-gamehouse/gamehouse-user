@@ -12,7 +12,6 @@ public class AuthDtos {
         private String name;        // 회원가입 및 아이디 찾기용
         private String phone;       // 회원가입 및 아이디 찾기용
         private String nickname;
-        private String profileImageKey;
 
         // [FR-01] 가입 설문에서 받는 프로필 정보 5개.
         //   성별·주 포지션·게임·게임모드·게임성향·티어는 가입에서 빠졌다.
